@@ -18,7 +18,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y ca-certificates
 COPY --from=backend /go/src/github.com/moov-io/watchman/bin/server /bin/server
 
 COPY --from=frontend /watchman/build/ /watchman/
-ENV WEB_ROOT=/watchman/
+ENV WEB_ROOT=/watchman/ \
+    WEBHOOK_BATCH_SIZE=250
 
 # USER moov # TODO(adam): non-root users
 
