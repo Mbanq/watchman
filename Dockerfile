@@ -20,7 +20,8 @@ COPY --from=backend /go/src/github.com/moov-io/watchman/bin/server /bin/server
 COPY --from=frontend /watchman/build/ /watchman/
 ENV WEB_ROOT=/watchman/
 
-# USER moov # TODO(adam): non-root users
+# Set OFAC_DOWNLOAD_TEMPLATE as ENV inside the image
+ENV OFAC_DOWNLOAD_TEMPLATE=https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/%s
 
 EXPOSE 8084
 EXPOSE 9094
