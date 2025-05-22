@@ -1,3 +1,243 @@
+## v0.51.2 (Released 2025-04-10)
+
+BREAKING CHANGE
+
+Watchman has undergone a complete overhaul of it's API endpoints, public models, search methodology, performance, and much more. We've redesigned Watchman to offer a unified endpoint and models to search sanctioned entities from any supported list. We encourage you to try out the new Watchman and report back any issues, comments, concerns you have.
+
+This release contains a lot of changes so make sure to test, validate and verify your usage. Let us know in the `#watchman` slack room how the new version works for you. We are planning to make continual scoring improvements.
+
+IMPROVEMENTS
+
+- search: unified endpoint and model for all supported lists
+- search: better performance for concurrently processing sanction lists
+- search: integrate [libpostal](https://github.com/openvenues/libpostal) for address parsing and normalization
+
+## v0.50.10 (Released 2025-02-19)
+
+IMPROVEMENTS
+
+- postalpool: use msgpack over JSON for binary pool
+
+BUILD
+
+- build(deps-dev): bump nokogiri from 1.16.7 to 1.18.3 in /docs
+
+## v0.50.9 (Released 2025-02-18)
+
+IMPROVEMENTS
+
+- address: telemetry for all cases of ParseAddress
+- ofactest: fix sample rate
+- stringscore: make benchmark more consistent
+
+## v0.50.8 (Released 2025-02-18)
+
+IMPROVEMENTS
+
+- build: fixup benchmark ResetTimer calls
+- norm: add BenchmarkPhoneNumber, track ./internal/norm/ benchmarks in graph
+- ofactest: start on sampling OFAC data
+- search: leverage query's .PreparedFields.Name in compareName
+- search: normalize phone numbers
+- search: precompute strings.Fields
+
+## v0.50.7 (Released 2025-02-17)
+
+IMPROVEMENTS
+
+- search: precompute normalized name, altnames
+- search: remove ccache
+
+## v0.50.6 (Released 2025-02-14)
+
+IMPROVEMENTS
+
+- fix: normalize Country once
+- minmaxmed: optimize implementation
+- postalpool: better pooling by default, offer configurable knobs
+
+BUILD
+
+- fix(deps): update opentelemetry-go monorepo to v1.34.0
+
+## v0.50.5 (Released 2025-02-13)
+
+IMPROVEMENTS
+
+- ast: quick sanity check test
+- country: centralize normalization
+- docs: add arabic phonetics
+- groupsize: cleanup benchmarks
+- largest: make Items generic
+- postalpool: force healthchecks to make network calls
+- search: return watchman version in /v2/listinfo
+- search: support ?debug query param to return base64 encoded matching data
+- search: trim Address.Format()
+
+BUILD
+
+- build: require basic code coverage, use default linters
+- build: stop publishing :latest docker tag
+
+## v0.50.4 (Released 2025-02-11)
+
+IMPROVEMENTS
+
+- cmd/server: set automaxprocs on startup
+- ofactest: include Client for calling Sanctions List Search application
+- search: benchmark Similarity with debug and without
+- search: weight addresses more, consider address as signal to not downrank
+
+## v0.50.3 (Released 2025-02-11)
+
+IMPROVEMENTS
+
+- search: factor in contact info, weight only name match less
+
+## v0.50.2 (Released 2025-02-10)
+
+IMPROVEMENTS
+
+- groupsize: cleanup old evaluations concurrently, better locking schematics
+
+## v0.50.1 (Released 2025-02-10)
+
+IMPROVEMENTS
+
+- groupsize: better locking behavior
+
+## v0.50.0 (Released 2025-02-07)
+
+BREAKING CHANGE
+
+Watchman has undergone a complete overhaul of it's API endpoints, public models, search methodology, performance, and much more. We've redesigned Watchman to offer a unified endpoint and models to search sanctioned entities from any supported list. We encourage you to try out the new Watchman and report back any issues, comments, concerns you have.
+
+IMPROVEMENTS
+
+- search: unified endpoint and model for all supported lists
+- search: better performance for concurrently processing sanction lists
+- search: integrate [libpostal](https://github.com/openvenues/libpostal) for address parsing and normalization
+
+## v0.31.3 (Released 2025-01-13)
+
+IMPROVEMENTS
+
+- cmd/server: prevent NaN from escaping bestPairsJaroWinkler
+
+## v0.31.2 (Released 2025-01-13)
+
+IMPROVEMENTS
+
+- cmd/server: add more configuration for disabling default lists
+- cmd/server: copy from largest results
+- fix: fetch UK sanctions .ods from HTML
+
+BUILD
+
+- build: update golang.org/x/net
+
+## v0.31.0 (Released 2024-11-21)
+
+IMPROVEMENTS
+
+- feat: Add environment configuration to disable Web UI
+- feat: Add environment configuration to disable UK CSL download
+
+BUILD
+
+- build(deps): bump rexml from 3.3.6 to 3.3.9 in /docs
+
+## v0.30.0 (Released 2024-10-24)
+
+ADDITIONS
+
+Watchman now filters out indexed records based on the first character's phonetic match. This is helpful to eliminate most
+low scoring results and reduces CPU usage.
+
+You can force scoring search terms against every indexed record by setting `DISABLE_PHONETIC_FILTERING=yes`.
+
+## v0.29.2 (Released 2024-10-23)
+
+IMPROVEMENTS
+
+- cmd/server: only wrap pipeline steps with debugStep during debugging
+- cmd/server: pool x/text/transform.Transformer instances
+
+BUILD
+
+- build: update golang.org/x/text
+- cmd/server: reduce memory usage in benchmark setup
+
+## v0.29.1 (Released 2024-10-07)
+
+IMPROVEMENTS
+
+- feat: read WITH_EU_SCREENING_LIST as option to skip EU CSL list
+- feat: usaddress: add Similarity function
+- remove MySQL and sqlite dependencies, resolves #468
+- remove bloat not needed any more when we build with CGO_ENABLED=0
+- remove database from dependencies and build system
+
+BUILD
+
+- build(deps): bump body-parser and express in /webui
+- build(deps): bump braces from 3.0.2 to 3.0.3 in /webui
+- build(deps): bump ejs from 3.1.9 to 3.1.10 in /webui
+- build(deps): bump express from 4.18.2 to 4.19.2 in /webui
+- build(deps): bump follow-redirects from 1.15.4 to 1.15.6 in /webui
+- build(deps): bump google.golang.org/protobuf from 1.31.0 to 1.33.0
+- build(deps): bump micromatch from 4.0.5 to 4.0.8 in /webui
+- build(deps): bump rexml from 3.2.6 to 3.3.6 in /docs
+- build(deps): bump rollup from 2.79.1 to 2.79.2 in /webui
+- build(deps): bump webpack from 5.89.0 to 5.95.0 in /webui
+- build(deps): bump webpack-dev-middleware from 5.3.3 to 5.3.4 in /webui
+- build(deps): bump webrick from 1.8.1 to 1.8.2 in /docs
+- build(deps-dev): bump nokogiri from 1.16.2 to 1.16.5 in /docs
+- build: convert docker-compose to docker compose
+- build: switch from docker-compose
+- chore(deps): update dependency github-pages to v232
+- fix(deps): update dependency express to v4.19.2 [security]
+- fix(deps): update react monorepo to v18.3.1
+- fix(deps): updates `body-parser` from 1.20.2 to 1.20.3
+- fix(deps): updates `express` from 4.19.2 to 4.21.0
+
+## v0.28.2 (Released 2024-03-12)
+
+IMPROVEMENTS
+
+- fix: download all files if the initial dir does not exist
+
+## v0.28.1 (Released 2024-03-12)
+
+IMPROVEMENTS
+
+- fix: close and cleanup downloaded files after successful parsing
+
+BUILD
+
+- build(deps-dev): bump nokogiri from 1.13.10 to 1.16.2 in /docs
+- chore(deps): update dependency github-pages to v231
+
+## v0.28.0 (Released 2024-01-29)
+
+ADDITIONS
+
+- feat: add `/crypto` endpoint and extract digital currency addresses from OFAC
+- feat: add `SEARCH_MAX_WORKERS`
+
+IMPROVEMENTS
+
+- build: fix npm build for Openshift
+- build: force latest stable Go when building docker images
+- fix: accumulate SDN comments for merging overflow after all files are read
+- fix: allocate known-capacity arrays
+- fix: copy extended remarks from sdn_comments.csv
+- largest: improve performance, simplify insert step
+
+BUILD
+
+- build(deps): bump golang.org/x/crypto from 0.15.0 to 0.17.0
+
 ## v0.27.0 (Released 2023-12-14)
 
 This release of Watchman includes additional improvements to the search match scores to [reduce false positives and increase true positive matches](https://github.com/moov-io/watchman/pull/524#issue-2031927107). A few of the specific improvements are:

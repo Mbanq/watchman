@@ -28,7 +28,9 @@ openapi-generator*jar
 
 *.db
 
-webui/build/
-webui/node_modules/
+/libpostal/
+
+cmd/ui/fyne_*.go
+/cmd/ui/wasm/
 
 makefile.dev

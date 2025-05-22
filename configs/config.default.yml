@@ -1,0 +1,31 @@
+Watchman:
+  Servers:
+    BindAddress: ":8084"
+    AdminAddress: ":9094"
+
+  Telemetry:
+    ServiceName: "watchman"
+
+  Download:
+    RefreshInterval: "12h"
+    InitialDataDirectory: ""
+    IncludedLists:
+      - "us_csl"
+      - "us_ofac"
+
+  Search:
+    # Tune these settings based on your available resources (CPUs, etc).
+    # Usually a multiple (i.e. 2x, 4x) of GOMAXPROCS is optimal.
+    Goroutines:
+      Default: 10
+      Min: 1
+      Max: 25
+
+  PostalPool:
+    Enabled: false
+    Instances: 2
+    StartingPort: 10000
+    StartupTimeout: "60s"
+    RequestTimeout: "10s"
+    BinaryPath: "" # POSTAL_SERVER_BIN_PATH is set in Dockerfile
+    CGOSelfInstances: 1

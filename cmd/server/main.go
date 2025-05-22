@@ -5,217 +5,150 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/moov-io/base/admin"
-	moovhttp "github.com/moov-io/base/http"
-	"github.com/moov-io/base/http/bind"
 	"github.com/moov-io/base/log"
+	"github.com/moov-io/base/telemetry"
 	"github.com/moov-io/watchman"
-	"github.com/moov-io/watchman/internal/database"
+	"github.com/moov-io/watchman/internal/download"
+	"github.com/moov-io/watchman/internal/postalpool"
+	"github.com/moov-io/watchman/internal/search"
 
 	"github.com/gorilla/mux"
-)
-
-var (
-	httpAddr  = flag.String("http.addr", bind.HTTP("ofac"), "HTTP listen address")
-	adminAddr = flag.String("admin.addr", bind.Admin("ofac"), "Admin HTTP listen address")
-
-	flagBasePath  = flag.String("base-path", "/", "Base path to serve HTTP routes and webui from")
-	flagLogFormat = flag.String("log.format", "", "Format for log lines (Options: json, plain")
-	flagMaxProcs  = flag.Int("max-procs", runtime.NumCPU(), "Maximum number of CPUs used for search and endpoints")
-	flagWorkers   = flag.Int("workers", 1024, "Maximum number of goroutines used for search")
-
-	dataRefreshInterval = 12 * time.Hour
+	"go.uber.org/automaxprocs/maxprocs"
 )
 
 func main() {
-	flag.Parse()
+	logger := log.NewDefaultLogger().With(log.Fields{
+		"app":     log.String("watchman"),
+		"version": log.String(watchman.Version),
+	})
+	logger.Log("Starting watchman server")
 
-	runtime.GOMAXPROCS(*flagMaxProcs)
+	// Set runtime.GOMAXPROCS
+	maxprocs.Set(maxprocs.Logger(logger.Info().Logf))
 
-	var logger log.Logger
-	if v := os.Getenv("LOG_FORMAT"); v != "" {
-		*flagLogFormat = v
-	}
-	if strings.ToLower(*flagLogFormat) == "json" {
-		logger = log.NewJSONLogger()
-	} else {
-		logger = log.NewDefaultLogger()
-	}
-
-	logger.Logf("Starting watchman server version %s", watchman.Version)
-
-	// Channel for errors
-	errs := make(chan error)
-
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
-		errs <- fmt.Errorf("signal: %v", <-c)
-	}()
-
-	// Setup database connection
-	db, err := database.New(logger, os.Getenv("DATABASE_TYPE"))
+	config, err := LoadConfig(logger)
 	if err != nil {
-		logger.Logf("database problem: %v", err)
+		logger.Fatal().LogErrorf("problem loading config: %v", err)
 		os.Exit(1)
 	}
+
+	// Setup telemetry
+	telemetryShutdownFunc, err := telemetry.SetupTelemetry(context.Background(), config.Telemetry, watchman.Version)
+	if err != nil {
+		logger.Fatal().LogErrorf("setting up telemetry failed: %w", err)
+		os.Exit(1)
+	}
+	defer telemetryShutdownFunc()
+
+	downloader, err := download.NewDownloader(logger, config.Download)
+	if err != nil {
+		logger.Fatal().LogErrorf("problem setting up downloader: %v", err)
+		os.Exit(1)
+	}
+
+	// Setup signal listener
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	// Set up a channel to listen for system interrupt signals
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Listen for errors
+	errs := make(chan error, 1)
+
+	// Setup search service and endpoints
+	searchService, err := search.NewService(logger, config.Search)
+	if err != nil {
+		logger.Fatal().LogErrorf("problem setting up search service: %v", err)
+		os.Exit(1)
+	}
+	err = setupPeriodicRefreshing(ctx, logger, errs, config.Download, downloader, searchService)
+	if err != nil {
+		logger.Fatal().LogErrorf("problem during initial download: %v", err)
+		os.Exit(1)
+	}
+
+	router := mux.NewRouter()
+	addPingRoute(router)
+
+	addressParsingPool, err := postalpool.NewService(logger, config.PostalPool)
+	if err != nil {
+		logger.Fatal().LogErrorf("problem setting up address parsing pool: %v", err)
+		os.Exit(1)
+	}
+	searchController := search.NewController(logger, searchService, addressParsingPool)
+	searchController.AppendRoutes(router)
+
+	// Start Admin server (with Prometheus metrics)
+	adminServer, err := admin.New(admin.Opts{
+		Addr: config.Servers.AdminAddress,
+	})
+	if err != nil {
+		errs <- fmt.Errorf("problem starting admin server: %v", err)
+	} else {
+		adminServer.AddVersionHandler(watchman.Version) // Setup 'GET /version'
+	}
+	go func() {
+		if adminServer == nil {
+			return
+		}
+
+		logger.Logf("listening on %s", adminServer.BindAddr())
+
+		if err := adminServer.Listen(); err != nil {
+			errs <- logger.Error().LogErrorf("admin server shutdown: %v", err).Err()
+		}
+	}()
 	defer func() {
-		if err := db.Close(); err != nil {
-			logger.LogError(err)
+		if adminServer != nil {
+			adminServer.Shutdown()
 		}
 	}()
 
-	// Setup business HTTP routes
-	if v := os.Getenv("BASE_PATH"); v != "" {
-		*flagBasePath = v
-	}
-	router := mux.NewRouter().PathPrefix(*flagBasePath).Subrouter()
-	moovhttp.AddCORSHandler(router)
-	addPingRoute(router)
-
-	// Start business HTTP server
-	readTimeout, _ := time.ParseDuration("30s")
-	writTimeout, _ := time.ParseDuration("30s")
-	idleTimeout, _ := time.ParseDuration("60s")
-
-	// Check to see if our -http.addr flag has been overridden
-	if v := os.Getenv("HTTP_BIND_ADDRESS"); v != "" {
-		*httpAddr = v
-	}
-
+	// Setup HTTP server
+	defaultTimeout := 20 * time.Second
 	serve := &http.Server{
-		Addr:    *httpAddr,
+		Addr:    config.Servers.BindAddress,
 		Handler: router,
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify:       false,
 			PreferServerCipherSuites: true,
 			MinVersion:               tls.VersionTLS12,
 		},
-		ReadTimeout:       readTimeout,
-		ReadHeaderTimeout: readTimeout,
-		WriteTimeout:      writTimeout,
-		IdleTimeout:       idleTimeout,
+		ReadTimeout:       defaultTimeout,
+		ReadHeaderTimeout: defaultTimeout,
+		WriteTimeout:      defaultTimeout,
+		IdleTimeout:       defaultTimeout,
 	}
 	shutdownServer := func() {
-		if err := serve.Shutdown(context.TODO()); err != nil {
-			logger.LogError(err)
+		if serve != nil {
+			serve.Shutdown(context.TODO())
 		}
 	}
-
-	// Check to see if our -admin.addr flag has been overridden
-	if v := os.Getenv("HTTP_ADMIN_BIND_ADDRESS"); v != "" {
-		*adminAddr = v
-	}
-
-	// Start Admin server (with Prometheus metrics)
-	adminServer, err := admin.New(admin.Opts{
-		Addr: *adminAddr,
-	})
-	if err != nil {
-		errs <- fmt.Errorf("problem starting admin server: %v", err)
-	}
-	adminServer.AddVersionHandler(watchman.Version) // Setup 'GET /version'
-	go func() {
-		logger.Logf("listening on %s", adminServer.BindAddr())
-		if err := adminServer.Listen(); err != nil {
-			err = fmt.Errorf("problem starting admin http: %v", err)
-			logger.LogError(err)
-			errs <- fmt.Errorf("admin shutdown: %v", err)
-		}
-	}()
-	defer adminServer.Shutdown()
-
-	// Setup download repository
-	downloadRepo := &sqliteDownloadRepository{db, logger}
-	defer downloadRepo.close()
-
-	var pipeline *pipeliner
-	if debug, err := strconv.ParseBool(os.Getenv("DEBUG_NAME_PIPELINE")); debug && err == nil {
-		pipeline = newPipeliner(logger)
-	} else {
-		pipeline = newPipeliner(log.NewNopLogger())
-	}
-	searcher := newSearcher(logger, pipeline, *flagWorkers)
-
-	// Add debug routes
-	adminServer.AddHandler(debugSDNPath, debugSDNHandler(logger, searcher))
-
-	// Initial download of data
-	if stats, err := searcher.refreshData(os.Getenv("INITIAL_DATA_DIRECTORY")); err != nil {
-		logger.LogErrorf("ERROR: failed to download/parse initial data: %v", err)
-		os.Exit(1)
-	} else {
-		if err := downloadRepo.recordStats(stats); err != nil {
-			logger.LogErrorf("ERROR: failed to record download stats: %v", err)
-			os.Exit(1)
-		}
-		logger.Info().With(log.Fields{
-			"SDNs":             log.Int(stats.SDNs),
-			"AltNames":         log.Int(stats.Alts),
-			"Addresses":        log.Int(stats.Addresses),
-			"SSI":              log.Int(stats.SectoralSanctions),
-			"DPL":              log.Int(stats.DeniedPersons),
-			"BISEntities":      log.Int(stats.BISEntities),
-			"UVL":              log.Int(stats.Unverified),
-			"ISN":              log.Int(stats.NonProliferationSanctions),
-			"FSE":              log.Int(stats.ForeignSanctionsEvaders),
-			"PLC":              log.Int(stats.PalestinianLegislativeCouncil),
-			"CAP":              log.Int(stats.CAPTA),
-			"DTC":              log.Int(stats.ITARDebarred),
-			"CMIC":             log.Int(stats.ChineseMilitaryIndustrialComplex),
-			"NS_MBS":           log.Int(stats.NonSDNMenuBasedSanctions),
-			"EU_CSL":           log.Int(stats.EUCSL),
-			"UK_CSL":           log.Int(stats.UKCSL),
-			"UK_SanctionsList": log.Int(stats.UKSanctionsList),
-		}).Logf("data refreshed %v ago", time.Since(stats.RefreshedAt))
-	}
-
-	// Setup periodic download and re-search
-	updates := make(chan *DownloadStats)
-	dataRefreshInterval = getDataRefreshInterval(logger, os.Getenv("DATA_REFRESH_INTERVAL"))
-	go searcher.periodicDataRefresh(dataRefreshInterval, downloadRepo, updates)
-	go handleDownloadStats(updates, func(stats *DownloadStats) {
-		callDownloadWebook(logger, stats)
-	})
-
-	// Add manual data refresh endpoint
-	adminServer.AddHandler(manualRefreshPath, manualRefreshHandler(logger, searcher, updates, downloadRepo))
-
-	// Add searcher for HTTP routes
-	addSDNRoutes(logger, router, searcher)
-	addSearchRoutes(logger, router, searcher)
-	addDownloadRoutes(logger, router, downloadRepo)
-	addValuesRoutes(logger, router, searcher)
-
-	// Setup our web UI to be served as well
-	setupWebui(logger, router, *flagBasePath)
 
 	// Start business logic HTTP server
 	go func() {
-		if certFile, keyFile := os.Getenv("HTTPS_CERT_FILE"), os.Getenv("HTTPS_KEY_FILE"); certFile != "" && keyFile != "" {
-			logger.Logf("binding to %s for secure HTTP server", *httpAddr)
-			if err := serve.ListenAndServeTLS(certFile, keyFile); err != nil {
-				logger.LogErrorf("https shutdown: %v", err)
-			}
+		certFile := cmp.Or(os.Getenv("HTTPS_CERT_FILE"), config.Servers.TLSCertFile)
+		keyFile := cmp.Or(os.Getenv("HTTPS_KEY_FILE"), config.Servers.TLSKeyFile)
+
+		if certFile != "" && keyFile != "" {
+			logger.Logf("binding to %s for secure HTTP server", config.Servers.BindAddress)
+			errs <- serve.ListenAndServeTLS(certFile, keyFile)
 		} else {
-			logger.Logf("binding to %s for HTTP server", *httpAddr)
-			if err := serve.ListenAndServe(); err != nil {
-				logger.LogErrorf("http shutdown: %v", err)
-			}
+			logger.Logf("binding to %s for HTTP server", config.Servers.BindAddress)
+			errs <- serve.ListenAndServe()
 		}
 	}()
 
@@ -228,47 +161,8 @@ func main() {
 
 func addPingRoute(r *mux.Router) {
 	r.Methods("GET").Path("/ping").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		moovhttp.SetAccessControlAllowHeaders(w, r.Header.Get("Origin"))
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("PONG"))
 	})
-}
-
-// getDataRefreshInterval returns a time.Duration for how often OFAC should refresh data
-//
-// env is the value from an environmental variable
-func getDataRefreshInterval(logger log.Logger, env string) time.Duration {
-	if env != "" {
-		if strings.EqualFold(env, "off") {
-			return 0 * time.Second
-		}
-		if dur, _ := time.ParseDuration(env); dur > 0 {
-			logger.Logf("Setting data refresh interval to %v", dur)
-			return dur
-		}
-	}
-	logger.Logf("Setting data refresh interval to %v (default)", dataRefreshInterval)
-	return dataRefreshInterval
-}
-
-func setupWebui(logger log.Logger, r *mux.Router, basePath string) {
-	dir := os.Getenv("WEB_ROOT")
-	if dir == "" {
-		dir = filepath.Join("webui", "build")
-	}
-	if _, err := os.Stat(dir); err != nil {
-		logger.Logf("problem with webui=%s: %v", dir, err)
-		os.Exit(1)
-	}
-	r.PathPrefix("/").Handler(http.StripPrefix(basePath, http.FileServer(http.Dir(dir))))
-}
-
-func handleDownloadStats(updates chan *DownloadStats, handle func(stats *DownloadStats)) {
-	for {
-		stats := <-updates
-		if stats != nil {
-			handle(stats)
-		}
-	}
 }
