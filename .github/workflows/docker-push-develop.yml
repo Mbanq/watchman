@@ -15,6 +15,7 @@ jobs:
       - name: Build:dockerimage
         uses: docker/build-push-action@v1
         with:
+          dockerfile: build/Dockerfile
           registry: ghcr.io
           username: "sophanith2020"
           password: ${{ secrets.GHCIO }}
