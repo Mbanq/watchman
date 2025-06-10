@@ -8,6 +8,8 @@ menubar: docs-menu
 
 ## Configuration
 
+> For documentation on older releases of Watchman (v0.31.x series), please visit the [older docs website](https://github.com/moov-io/watchman/tree/v0.31.3/docs) in our GitHub repository.
+
 ### File
 
 Set the `APP_CONFIG` environment variable with a filepath to a yaml file containing the following:
@@ -84,7 +86,8 @@ PostalPool is an experiment for improving address parsing. It's optional configu
 
 | Environmental Variable | Description | Default |
 |-----|-----|-----|
-| `OFAC_DOWNLOAD_TEMPLATE` | HTTP address for downloading raw OFAC files. | `https://www.treasury.gov/ofac/downloads/%s` |
+| `DOWNLOAD_TIMEOUT` | Duration of time allowed for a list to fully download. | `45s` |
+| `OFAC_DOWNLOAD_TEMPLATE` | HTTP address for downloading raw OFAC files. | `https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/%s` |
 | `EU_CSL_TOKEN` | Token used to download the EU Consolidated Screening List | `<valid-token>` |
 | `EU_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading EU Consolidated Screening List | Subresource of `webgate.ec.europa.eu` |
 | `UK_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading UK Consolidated Screening List | Subresource of `www.gov.uk` |

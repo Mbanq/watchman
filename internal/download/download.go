@@ -1,9 +1,13 @@
 package download
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -43,7 +47,7 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 		StartedAt:  time.Now().In(time.UTC),
 	}
 	logger := dl.logger.Info().With(log.Fields{
-		"initial_data_directory": log.String(dl.conf.InitialDataDirectory),
+		"initial_data_directory": log.String(expandInitialDir(initialDataDirectory(dl.conf))),
 	})
 	start := time.Now()
 	logger.Info().Log("starting list refresh")
@@ -69,8 +73,13 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 	// Create a WaitGroup to track all producers
 	var producerWg sync.WaitGroup
 
+	// Track what lists have been requested
+	var requestedLists []search.SourceList
+
 	// OFAC Records
 	if slices.Contains(dl.conf.IncludedLists, search.SourceUSOFAC) {
+		requestedLists = append(requestedLists, search.SourceUSOFAC)
+
 		producerWg.Add(1)
 		g.Go(func() error {
 			defer producerWg.Done()
@@ -84,6 +93,8 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 
 	// CSL Records
 	if slices.Contains(dl.conf.IncludedLists, search.SourceUSCSL) {
+		requestedLists = append(requestedLists, search.SourceUSCSL)
+
 		producerWg.Add(1)
 		g.Go(func() error {
 			defer producerWg.Done()
@@ -93,6 +104,19 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 			}
 			return nil
 		})
+	}
+
+	// Compare the configured lists against those we actually loaded.
+	// Any extra lists are an error as we don't want to silently ignore them.
+	if len(requestedLists) > len(dl.conf.IncludedLists) {
+		close(preparedLists)
+
+		return stats, fmt.Errorf("loaded extra lists: %#v loaded compared to %#v configured", requestedLists, dl.conf.IncludedLists)
+	}
+	if extra := findExtraLists(dl.conf.IncludedLists, requestedLists); extra != "" {
+		close(preparedLists)
+
+		return stats, fmt.Errorf("unknown lists: %v", extra)
 	}
 
 	// Add a goroutine to close the channel when all producers are done
@@ -117,6 +141,32 @@ func (dl *downloader) RefreshAll(ctx context.Context) (Stats, error) {
 	return stats, nil
 }
 
+func findExtraLists(config, loaded []search.SourceList) string {
+	var extra []search.SourceList
+
+	for _, c := range config {
+		var found bool
+		for _, l := range loaded {
+			if c == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			extra = append(extra, c)
+		}
+	}
+
+	var buf bytes.Buffer
+	for idx, e := range extra {
+		if idx > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteString(string(e))
+	}
+	return buf.String()
+}
+
 type preparedList struct {
 	ListName search.SourceList
 	Entities []search.Entity[search.Value]
@@ -124,12 +174,24 @@ type preparedList struct {
 	Hash string
 }
 
+func expandInitialDir(initialDir string) string {
+	dir, err := filepath.Abs(initialDir)
+	if err != nil {
+		dir = initialDir
+	}
+	return dir
+}
+
+func initialDataDirectory(conf Config) string {
+	return cmp.Or(os.Getenv("INITIAL_DATA_DIRECTORY"), conf.InitialDataDirectory)
+}
+
 func loadOFACRecords(ctx context.Context, logger log.Logger, conf Config, responseCh chan preparedList) error {
 	ctx, span := telemetry.StartSpan(ctx, "load-ofac-records")
 	defer span.End()
 
 	start := time.Now()
-	files, err := ofac.Download(ctx, logger, conf.InitialDataDirectory)
+	files, err := ofac.Download(ctx, logger, initialDataDirectory(conf))
 	if err != nil {
 		return fmt.Errorf("OFAC download: %v", err)
 	}
@@ -172,7 +234,7 @@ func loadCSLUSRecords(ctx context.Context, logger log.Logger, conf Config, respo
 	defer span.End()
 
 	start := time.Now()
-	files, err := csl_us.Download(ctx, logger, conf.InitialDataDirectory)
+	files, err := csl_us.Download(ctx, logger, initialDataDirectory(conf))
 	if err != nil {
 		return fmt.Errorf("US CSL download: %w", err)
 	}
@@ -193,7 +255,7 @@ func loadCSLUSRecords(ctx context.Context, logger log.Logger, conf Config, respo
 	}
 	span.AddEvent("finished parsing")
 
-	entities := csl_us.ConvertSanctionsData(res.SanctionsData)
+	entities := csl_us.ConvertSanctionsData(res)
 
 	logger.Debug().Logf("finished US CSL preparation: %v", time.Since(start))
 	span.AddEvent("finished US CSL preparation")

@@ -5,6 +5,7 @@
 package download
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -22,12 +23,28 @@ import (
 )
 
 var (
-	HTTPClient = &http.Client{
-		Timeout: 45 * time.Second,
-	}
+	defaultTimeout = 60 * time.Second
 )
 
+var (
+	HTTPClient, _ = DefaultHTTPClient()
+)
+
+func DefaultHTTPClient() (*http.Client, error) {
+	timeout, err := time.ParseDuration(cmp.Or(os.Getenv("DOWNLOAD_TIMEOUT"), defaultTimeout.String()))
+	if err != nil {
+		return nil, fmt.Errorf("parsing download timeout: %w", err)
+	}
+
+	return &http.Client{
+		Timeout: timeout,
+	}, nil
+}
+
 func New(logger log.Logger, httpClient *http.Client) *Downloader {
+	if httpClient == nil {
+		httpClient, _ = DefaultHTTPClient()
+	}
 	return &Downloader{
 		HTTP:   httpClient,
 		Logger: logger,
@@ -103,6 +120,9 @@ findfiles:
 				mu.Lock()
 				out[name] = fd
 				mu.Unlock()
+
+				dl.Logger.Info().Logf("found %s", file.Name())
+
 				// file is found, skip downloading
 				wg.Done()
 				continue findfiles
@@ -113,7 +133,7 @@ findfiles:
 		go func(wg *sync.WaitGroup, filename, downloadURL string) {
 			defer wg.Done()
 
-			logger := dl.createLogger(filename, downloadURL)
+			logger := dl.createDownloadLogger(filename, downloadURL)
 
 			startTime := time.Now().In(time.UTC)
 			content, err := dl.retryDownload(ctx, downloadURL)
@@ -136,7 +156,7 @@ findfiles:
 	return out, nil
 }
 
-func (dl *Downloader) createLogger(filename, downloadURL string) log.Logger {
+func (dl *Downloader) createDownloadLogger(filename, downloadURL string) log.Logger {
 	var host string
 	u, _ := url.Parse(downloadURL)
 	if u != nil {
