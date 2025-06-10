@@ -1,3 +1,57 @@
+## v0.52.2 (Released 2025-06-02)
+
+IMPROVEMENTS
+
+- docs: type param on search is no longer required
+- download: error when unknown lists are provided in the config
+- search: error requests when extra/unused query params are supplied
+- search: stop requiring type API query param
+- sources/csl_us: clean "and any subsidiary" from entity names
+- sources/csl_us: read CSV from trade.gov
+- sources/csl_us: set ReuseRecord on reader
+
+BUILD
+
+- build: setup CSL US benchmarks
+- sources/csl_us: setup benchmarks, use smaller test file
+- sources/ofac: add benchmark for FindEntity
+
+## v0.52.1 (Released 2025-05-19)
+
+IMPROVEMENTS
+
+- docs: include source data in openapi spec
+- ingest: log how many File templates are read
+- search: read/set source (SouceList) query param
+- sources/display: don't set ?source=api-request
+
+## v0.52.0 (Released 2025-05-16)
+
+This release of Watchman adds support for [ingesting CSV files as datasets](https://moov-io.github.io/watchman/ingest/), improved address similarity scoring, returning the original query in search results, and consolidating the web interface in the server binary / docker image along with several bug fixes.
+
+ADDITIONS
+
+- download: read `DOWNLOAD_TIMEOUT` from environment, default to `45s`
+- ingest: support arbitrary CSV via configuration as datasets
+- search: return the original query
+- sources/display: add DetailsURL for getting linkable Entity pages
+
+IMPROVEMENTS
+
+- api: add test for ErrorResponse and JsonResponse
+- build: consolidate webui into main binary / docker image
+- fix: set `INITIAL_DATA_DIRECTORY` better in tests
+- ingest: normalize Entity after parse
+- ofactest: use a "tiny ofac" record set, except for benchmarks
+- search: grab read lock before ProcessSliceFn
+- search: hide SimilarityScore fields when zero
+- search: normalize addresses to improve search results
+
+BUILD
+
+- build: only run benchmarks on non-github authored commits
+- build(deps): bump golang.org/x/net from 0.35.0 to 0.38.0
+
 ## v0.51.2 (Released 2025-04-10)
 
 BREAKING CHANGE

@@ -1,8 +1,8 @@
 package search
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +12,7 @@ import (
 	"github.com/moov-io/base/log"
 	"github.com/moov-io/base/strx"
 	"github.com/moov-io/base/telemetry"
+	"github.com/moov-io/watchman/internal/api"
 	"github.com/moov-io/watchman/internal/norm"
 	"github.com/moov-io/watchman/internal/postalpool"
 	"github.com/moov-io/watchman/internal/prepare"
@@ -59,44 +60,30 @@ func (c *controller) AppendRoutes(router *mux.Router) *mux.Router {
 func (c *controller) listinfo(w http.ResponseWriter, r *http.Request) {
 	stats := c.service.LatestStats()
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	json.NewEncoder(w).Encode(stats)
-}
-
-type errorResponse struct {
-	Error string `json:"error"`
+	api.JsonResponse(w, stats)
 }
 
 func (c *controller) search(w http.ResponseWriter, r *http.Request) {
 	ctx, span := telemetry.StartSpan(r.Context(), "api-search")
 	defer span.End()
 
-	debug := strx.Yes(r.URL.Query().Get("debug"))
+	queryParams := &api.QueryParams{Values: r.URL.Query()}
 
-	req, err := readSearchRequest(ctx, c.addressParsingPool, r)
+	debug := strx.Yes(queryParams.Get("debug"))
+
+	req, err := readSearchRequest(ctx, c.addressParsingPool, queryParams)
 	if err != nil {
-		err = fmt.Errorf("problem reading v2 search request: %w", err)
-		c.logger.Error().LogError(err)
-
-		w.WriteHeader(http.StatusBadRequest)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(errorResponse{
-			Error: err.Error(),
-		})
-
+		err = c.logger.Error().LogErrorf("problem reading v2 search request: %w", err).Err()
+		api.ErrorResponse(w, err)
 		return
 	}
 
-	q := r.URL.Query()
 	opts := SearchOpts{
-		Limit:          extractSearchLimit(r),
-		MinMatch:       extractSearchMinMatch(r),
-		RequestID:      q.Get("requestID"),
+		Limit:          extractSearchLimit(queryParams),
+		MinMatch:       extractSearchMinMatch(queryParams),
+		RequestID:      queryParams.Get("requestID"),
 		Debug:          debug,
-		DebugSourceIDs: strings.Split(q.Get("debugSourceIDs"), ","),
+		DebugSourceIDs: strings.Split(queryParams.Get("debugSourceIDs"), ","),
 	}
 
 	span.SetAttributes(
@@ -104,17 +91,23 @@ func (c *controller) search(w http.ResponseWriter, r *http.Request) {
 		attribute.String("entity.type", string(req.Type)),
 	)
 
-	entities, err := c.service.Search(ctx, req, opts)
-	if err != nil {
-		c.logger.Error().LogErrorf("problem with v2 search: %v", err)
-
-		w.WriteHeader(http.StatusBadRequest)
+	// Check we don't have extra query params
+	if extra := queryParams.UnusedQueryParams(); len(extra) > 0 {
+		err = c.logger.Error().LogErrorf("extra/unused query parameters in request: %v", strings.Join(extra, ",")).Err()
+		api.ErrorResponse(w, err)
 		return
 	}
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(search.SearchResponse{
+	// Perform the search
+	entities, err := c.service.Search(ctx, req, opts)
+	if err != nil {
+		err = c.logger.Error().LogErrorf("problem with v2 search: %v", err).Err()
+		api.ErrorResponse(w, err)
+		return
+	}
+
+	err = api.JsonResponse(w, search.SearchResponse{
+		Query:    req,
 		Entities: entities,
 	})
 	if err != nil {
@@ -126,9 +119,9 @@ var (
 	softResultsLimit, hardResultsLimit = 10, 100
 )
 
-func extractSearchLimit(r *http.Request) int {
+func extractSearchLimit(q *api.QueryParams) int {
 	limit := softResultsLimit
-	if v := r.URL.Query().Get("limit"); v != "" {
+	if v := q.Get("limit"); v != "" {
 		n, _ := strconv.Atoi(v)
 		if n > 0 {
 			limit = n
@@ -143,40 +136,38 @@ func extractSearchLimit(r *http.Request) int {
 	return limit
 }
 
-func extractSearchMinMatch(r *http.Request) float64 {
-	if v := r.URL.Query().Get("minMatch"); v != "" {
+func extractSearchMinMatch(q *api.QueryParams) float64 {
+	if v := q.Get("minMatch"); v != "" {
 		n, _ := strconv.ParseFloat(v, 64)
 		return n
 	}
 	return 0.00
 }
 
-func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Service, r *http.Request) (search.Entity[search.Value], error) {
-	q := r.URL.Query()
-
+func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Service, q *api.QueryParams) (search.Entity[search.Value], error) {
 	var err error
 	var req search.Entity[search.Value]
 
 	req.Name = strings.TrimSpace(q.Get("name"))
 	req.Type = search.EntityType(strings.TrimSpace(strings.ToLower(q.Get("type"))))
-	req.Source = search.SourceAPIRequest
+	req.Source = cmp.Or(search.SourceList(q.Get("source")), search.SourceAPIRequest)
 
 	switch req.Type {
 	case search.EntityPerson:
 		req.Person = &search.Person{
 			Name:      req.Name,
-			AltNames:  q["altNames"],
+			AltNames:  q.GetAll("altNames"),
 			Gender:    search.Gender(prepare.NormalizeGender(q.Get("gender"))),
 			BirthDate: readDate(q.Get("birthDate")),
 			DeathDate: readDate(q.Get("deathDate")),
-			Titles:    q["titles"],
+			Titles:    q.GetAll("titles"),
 			// GovernmentIDs []GovernmentID `json:"governmentIDs"` // TODO(adam):
 		}
 
 	case search.EntityBusiness:
 		req.Business = &search.Business{
 			Name:      req.Name,
-			AltNames:  q["altNames"],
+			AltNames:  q.GetAll("altNames"),
 			Created:   readDate(q.Get("created")),
 			Dissolved: readDate(q.Get("dissolved")),
 			// Identifier []Identifier `json:"identifier"`
@@ -185,7 +176,7 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 	case search.EntityOrganization:
 		req.Organization = &search.Organization{
 			Name:      req.Name,
-			AltNames:  q["altNames"],
+			AltNames:  q.GetAll("altNames"),
 			Created:   readDate(q.Get("created")),
 			Dissolved: readDate(q.Get("dissolved")),
 			// Identifier []Identifier `json:"identifier"`
@@ -194,7 +185,7 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 	case search.EntityAircraft:
 		req.Aircraft = &search.Aircraft{
 			Name:         req.Name,
-			AltNames:     q["altNames"],
+			AltNames:     q.GetAll("altNames"),
 			Type:         search.AircraftType(q.Get("aircraftType")),
 			Flag:         q.Get("flag"),
 			Built:        readDate("built"),
@@ -206,7 +197,7 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 	case search.EntityVessel:
 		req.Vessel = &search.Vessel{
 			Name:      req.Name,
-			AltNames:  q["altNames"],
+			AltNames:  q.GetAll("altNames"),
 			IMONumber: q.Get("imoNumber"),
 			Type:      search.VesselType(q.Get("vesselType")),
 			Flag:      q.Get("flag"),
@@ -229,21 +220,18 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 				return req, fmt.Errorf("reading vessel GrossRegisteredTonnage: %w", err)
 			}
 		}
-
-	default:
-		return req, fmt.Errorf("missing type")
 	}
 
 	// contact info // TODO(adam): normalize
-	req.Contact.EmailAddresses = readStrings(q["email"], q["emailAddress"], q["emailAddresses"])
-	req.Contact.PhoneNumbers = readStrings(q["phone"], q["phoneNumber"], q["phoneNumbers"])
-	req.Contact.FaxNumbers = readStrings(q["fax"], q["faxNumber"], q["faxNumbers"])
-	req.Contact.Websites = readStrings(q["website"], q["websites"])
+	req.Contact.EmailAddresses = readStrings(q.GetAll("email"), q.GetAll("emailAddress"), q.GetAll("emailAddresses"))
+	req.Contact.PhoneNumbers = readStrings(q.GetAll("phone"), q.GetAll("phoneNumber"), q.GetAll("phoneNumbers"))
+	req.Contact.FaxNumbers = readStrings(q.GetAll("fax"), q.GetAll("faxNumber"), q.GetAll("faxNumbers"))
+	req.Contact.Websites = readStrings(q.GetAll("website"), q.GetAll("websites"))
 
-	addresses := readStrings(q["address"], q["addresses"])
+	addresses := readStrings(q.GetAll("address"), q.GetAll("addresses"))
 	req.Addresses = readAddresses(ctx, addressParsingPool, addresses)
 
-	cryptoAddresses := readStrings(q["cryptoAddress"], q["cryptoAddresses"])
+	cryptoAddresses := readStrings(q.GetAll("cryptoAddress"), q.GetAll("cryptoAddresses"))
 	req.CryptoAddresses = readCryptoCurrencyAddresses(cryptoAddresses)
 
 	// TODO(adam):

@@ -14,7 +14,7 @@
   <br>
 </p>
 
-[![GoDoc](https://pkg.go.dev/badge/github.com/moov-io/watchman?utm_source=godoc)](https://pkg.go.dev/github.com/moov-io/watchman)
+[![GoDoc](https://pkg.go.dev/badge/github.com/moov-io/watchman?utm_source=godoc)](https://pkg.go.dev/github.com/moov-io/watchman/pkg/search#Client)
 [![Build Status](https://github.com/moov-io/watchman/workflows/Go/badge.svg)](https://github.com/moov-io/watchman/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/moov-io/watchman)](https://goreportcard.com/report/github.com/moov-io/watchman)
 [![Apache 2 License](https://img.shields.io/badge/license-Apache2-blue.svg)](https://raw.githubusercontent.com/moov-io/ach/master/LICENSE)
@@ -48,7 +48,7 @@ Watchman integrates the following lists to help you maintain global compliance:
 
 ### Future Lists
 
-The v0.5x series of Watchman has revamped its search engine. The following lists are being re-added into Watchman.
+The v0.5X series of Watchman has revamped its search engine. The following lists are being re-added into Watchman.
 
 | Source | List |
 |--------|------|
@@ -56,9 +56,9 @@ The v0.5x series of Watchman has revamped its search engine. The following lists
 | United Kingdom | [OFSI Sanctions List](https://www.gov.uk/government/publications/financial-sanctions-consolidated-list-of-targets/consolidated-list-of-targets#contents) |
 | United Kingdom | [Sanctions List](https://www.gov.uk/government/publications/the-uk-sanctions-list) (Disabled by default) |
 
-## v2 Endpoints (v0.50.x series and beyond)
+## v2 Endpoints (v0.5X series and beyond)
 
-The v0.50.x series of Watchman has introduced a new v2 search endpoint and removed the older endpoint. This was done to offer a unified response model, improve overall performance, and work towards a stable v1.0 release.
+The v0.5X series of Watchman has introduced a new v2 search endpoint and removed the older endpoint. This was done to offer a unified response model, improve overall performance, and work towards a stable v1.0 release.
 
 We encourage you to try out the new Watchman and [report any issues or requests in slack](https://slack.moov.io) (`#watchman` channel).
 
@@ -207,7 +207,8 @@ By design, Watchman **does not persist** (save) any data about the search querie
 
 | Environmental Variable | Description | Default |
 |-----|-----|-----|
-| `OFAC_DOWNLOAD_TEMPLATE` | HTTP address for downloading raw OFAC files. | `https://www.treasury.gov/ofac/downloads/%s` |
+| `DOWNLOAD_TIMEOUT` | Duration of time allowed for a list to fully download. | `45s` |
+| `OFAC_DOWNLOAD_TEMPLATE` | HTTP address for downloading raw OFAC files. | `https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/%s` |
 | `EU_CSL_TOKEN` | Token used to download the EU Consolidated Screening List | `<valid-token>` |
 | `EU_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading EU Consolidated Screening List | Subresource of `webgate.ec.europa.eu` |
 | `UK_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading UK Consolidated Screening List | Subresource of `www.gov.uk` |

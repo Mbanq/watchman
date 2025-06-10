@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 type Client interface {
 	ListInfo(ctx context.Context) (ListInfoResponse, error)
 	SearchByEntity(ctx context.Context, entity Entity[Value], opts SearchOpts) (SearchResponse, error)
+	IngestFile(ctx context.Context, fileType string, file io.Reader) (IngestFileResponse, error)
 }
 
 func NewClient(httpClient *http.Client, baseAddress string) Client {
@@ -75,6 +77,8 @@ func (c *client) ListInfo(ctx context.Context) (ListInfoResponse, error) {
 }
 
 type SearchResponse struct {
+	Query Entity[Value] `json:"query"`
+
 	Entities []SearchedEntity[Value] `json:"entities"`
 }
 
@@ -112,7 +116,7 @@ func (c *client) SearchByEntity(ctx context.Context, entity Entity[Value], opts 
 	}
 
 	// Set query parameters
-	addr.RawQuery = buildQueryParameters(addr.Query(), entity, opts).Encode()
+	addr.RawQuery = BuildQueryParameters(SetSearchOpts(addr.Query(), opts), entity).Encode()
 
 	// Make the request
 	req, err := retryablehttp.NewRequest("GET", addr.String(), nil)
@@ -135,12 +139,7 @@ func (c *client) SearchByEntity(ctx context.Context, entity Entity[Value], opts 
 	return out, nil
 }
 
-func buildQueryParameters(q url.Values, entity Entity[Value], opts SearchOpts) url.Values {
-	q.Set("type", string(entity.Type))
-
-	if entity.Name != "" {
-		q.Set("name", entity.Name)
-	}
+func SetSearchOpts(q url.Values, opts SearchOpts) url.Values {
 	if opts.Limit > 0 {
 		q.Set("limit", strconv.Itoa(opts.Limit))
 	}
@@ -149,6 +148,20 @@ func buildQueryParameters(q url.Values, entity Entity[Value], opts SearchOpts) u
 	}
 	if opts.Debug {
 		q.Set("debug", "yes")
+	}
+
+	return q
+}
+
+func BuildQueryParameters(q url.Values, entity Entity[Value]) url.Values {
+	q.Set("type", string(entity.Type))
+
+	if src := string(entity.Source); src != "" {
+		q.Set("source", src)
+	}
+
+	if entity.Name != "" {
+		q.Set("name", entity.Name)
 	}
 
 	// Person, Business, Organization, Aircraft, Vessel
@@ -337,4 +350,39 @@ func setCryptoAddresses(q url.Values, cryptoAddresses []CryptoAddress) {
 	for _, addr := range cryptoAddresses {
 		q.Add("cryptoAddress", fmt.Sprintf("%s:%s", addr.Currency, addr.Address))
 	}
+}
+
+type IngestFileResponse struct {
+	FileType string          `json:"fileType"`
+	Entities []Entity[Value] `json:"entities"`
+}
+
+func (c *client) IngestFile(ctx context.Context, fileType string, file io.Reader) (IngestFileResponse, error) {
+	var out IngestFileResponse
+
+	// Build the URL
+	addr, err := url.Parse(c.baseAddress + fmt.Sprintf("/v2/ingest/%s", fileType))
+	if err != nil {
+		return out, fmt.Errorf("problem creating baseAddress: %w", err)
+	}
+
+	// Make the request
+	req, err := retryablehttp.NewRequest("POST", addr.String(), file)
+	if err != nil {
+		return out, fmt.Errorf("creating ingest file request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return out, fmt.Errorf("ingest file: %w", err)
+	}
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&out)
+	if err != nil {
+		return out, fmt.Errorf("decoding ingest file response: %w", err)
+	}
+	return out, nil
 }

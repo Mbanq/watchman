@@ -2,6 +2,7 @@ package search
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,8 +10,6 @@ import (
 )
 
 func TestCompareName(t *testing.T) {
-	var buf bytes.Buffer
-
 	tests := []struct {
 		name          string
 		query         Entity[any]
@@ -167,12 +166,26 @@ func TestCompareName(t *testing.T) {
 			shouldMatch:   false,
 			exact:         false,
 		},
+
+		// TODO(adam):
+		// {"JSCARGUMENT", "JSC ARGUMENT", 0.413},
+		// {"ivan", "john", 0.01},
+		// {"john smith", "john smythe", 0.893},
+		// {"sean", "shawn", 0.01},
+		// {"mohamed", "muhammed", 0.849},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
 			// Precompute the Entity like search service does
 			result := compareName(&buf, tt.query.Normalize(), tt.index.Normalize(), 1.0)
+
+			if testing.Verbose() {
+				fmt.Printf("%#v\n", result)
+				fmt.Printf("%s\n", buf.String())
+			}
 
 			require.InDelta(t, tt.expectedScore, result.Score, 0.1, "expected score %v but got %v", tt.expectedScore, result.Score)
 			require.Equal(t, tt.shouldMatch, result.Matched, "expected matched=%v but got matched=%v", tt.shouldMatch, result.Matched)
