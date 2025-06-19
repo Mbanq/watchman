@@ -3,7 +3,6 @@ package integrity
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/moov-io/watchman/internal/cslustest"
@@ -16,18 +15,16 @@ import (
 func TestIntegrity_OFAC_US_CSL(t *testing.T) {
 	t.Run("28603", func(t *testing.T) {
 		ofacEntity := ofactest.FindEntity(t, "28603")
-		ofacEntity.Source = search.SourceAPIRequest
-
 		cslUSEntity := cslustest.FindEntity(t, "28603")
 
 		// Basic Fields
-		require.Equal(t, strings.ToLower(ofacEntity.Name), strings.ToLower(cslUSEntity.Name))
+		require.Equal(t, ofacEntity.Name, cslUSEntity.Name)
 		require.Equal(t, ofacEntity.Type, cslUSEntity.Type)
 		require.NotNil(t, ofacEntity.Business)
 		require.NotNil(t, cslUSEntity.Business)
 
 		// Business Fields
-		require.Equal(t, strings.ToLower(ofacEntity.Business.Name), strings.ToLower(cslUSEntity.Business.Name))
+		require.Equal(t, ofacEntity.Business.Name, cslUSEntity.Business.Name)
 		require.ElementsMatch(t, ofacEntity.Business.AltNames, cslUSEntity.Business.AltNames)
 		require.Equal(t, ofacEntity.Business.Created, cslUSEntity.Business.Created)
 		require.Equal(t, ofacEntity.Business.Dissolved, cslUSEntity.Business.Dissolved)
@@ -44,9 +41,9 @@ func TestIntegrity_OFAC_US_CSL(t *testing.T) {
 
 		var buf bytes.Buffer
 		score := search.DebugSimilarity(&buf, ofacEntity, cslUSEntity)
+		require.InDelta(t, 1.00, score, 0.001)
 
 		fmt.Println(buf.String())
 
-		require.InDelta(t, 1.00, score, 0.001)
 	})
 }

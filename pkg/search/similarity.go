@@ -59,10 +59,6 @@ func DebugSimilarity[Q any, I any](w io.Writer, query Entity[Q], index Entity[I]
 	return details.FinalScore
 }
 
-var (
-	emptyPieces = make([]ScorePiece, 9)
-)
-
 // DetailedSimilarity returns the scoring details of each query piece against the index Entity.
 //
 // This is intended to give detailed results of which fields matched and how they were scored against each other.
@@ -71,13 +67,6 @@ var (
 func DetailedSimilarity[Q any, I any](w io.Writer, query Entity[Q], index Entity[I]) SimilarityScore {
 	out := SimilarityScore{
 		Pieces: make([]ScorePiece, 0, 9),
-	}
-
-	if query.Source != sourceEmpty && query.Source != SourceAPIRequest {
-		if query.Source != index.Source {
-			out.Pieces = emptyPieces
-			return out
-		}
 	}
 
 	// Critical identifiers (highest weight)
@@ -202,7 +191,7 @@ type entityFields struct {
 }
 
 func calculateFinalScore[Q any, I any](w io.Writer, pieces []ScorePiece, exactOverride bool, query Entity[Q], index Entity[I]) float64 {
-	if len(pieces) == 0 {
+	if len(pieces) == 0 || query.Type != index.Type {
 		return 0
 	}
 
@@ -214,7 +203,7 @@ func calculateFinalScore[Q any, I any](w io.Writer, pieces []ScorePiece, exactOv
 	baseScore := calculateBaseScore(pieces, fields)
 
 	// Apply coverage penalties
-	finalScore := applyPenaltiesAndBonuses(w, baseScore, coverage, fields)
+	finalScore := applyPenaltiesAndBonuses(w, baseScore, coverage, fields, query.Type == index.Type)
 
 	if w != nil {
 		debug(w, "calculateFinalScore:\n")
@@ -318,7 +307,7 @@ type coverage struct {
 	criticalRatio float64 `json:"criticalRatio"`
 }
 
-func applyPenaltiesAndBonuses(w io.Writer, baseScore float64, cov coverage, fields entityFields) float64 {
+func applyPenaltiesAndBonuses(w io.Writer, baseScore float64, cov coverage, fields entityFields, sameType bool) float64 {
 	score := baseScore
 
 	if w != nil {
@@ -366,6 +355,15 @@ func applyPenaltiesAndBonuses(w io.Writer, baseScore float64, cov coverage, fiel
 
 		if w != nil {
 			debug(w, "  perfect match requirements = %.2f\n", score)
+		}
+	}
+
+	// Handle type mismatches
+	if !sameType {
+		score = 0.0
+
+		if w != nil {
+			debug(w, "  !sameType = %.2f\n", score)
 		}
 	}
 

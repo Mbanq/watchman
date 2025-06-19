@@ -88,7 +88,7 @@ func TestSimilarity_OFAC_SDN_Person(t *testing.T) {
 					Gender:    search.GenderMale,
 				},
 			},
-			expected: 0.644,
+			expected: 0.544,
 		},
 		{
 			name: "Mismatch - Wrong name and no matching details",
@@ -102,12 +102,12 @@ func TestSimilarity_OFAC_SDN_Person(t *testing.T) {
 			expected: 0.155,
 		},
 		{
-			name: "missing entity type",
+			name: "Wrong entity type",
 			query: search.Entity[any]{
 				Name: "JOHN SMITH",
 				Type: search.EntityVessel, // intentionally vessel to mismatch
 			},
-			expected: 0.1396,
+			expected: 0.0,
 		},
 	}
 
@@ -201,12 +201,12 @@ func TestSimilarity_OFAC_SDN_Business(t *testing.T) {
 			expected: 0.087,
 		},
 		{
-			name: "missing entity type",
+			name: "Wrong entity type",
 			query: search.Entity[any]{
 				Name: "ACME Corporation",
 				Type: search.EntityVessel,
 			},
-			expected: 0.2761,
+			expected: 0.0,
 		},
 	}
 
@@ -362,7 +362,7 @@ func TestSimilarity_Edge_Cases(t *testing.T) {
 				Name: "TEST ENTITY",
 				Type: search.EntityBusiness,
 			},
-			expected: 0.855,
+			expected: 0.0,
 		},
 	}
 

@@ -1,7 +1,6 @@
 package search
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -67,23 +66,22 @@ func (c *controller) search(w http.ResponseWriter, r *http.Request) {
 	ctx, span := telemetry.StartSpan(r.Context(), "api-search")
 	defer span.End()
 
-	queryParams := &api.QueryParams{Values: r.URL.Query()}
+	debug := strx.Yes(r.URL.Query().Get("debug"))
 
-	debug := strx.Yes(queryParams.Get("debug"))
-
-	req, err := readSearchRequest(ctx, c.addressParsingPool, queryParams)
+	req, err := readSearchRequest(ctx, c.addressParsingPool, r)
 	if err != nil {
 		err = c.logger.Error().LogErrorf("problem reading v2 search request: %w", err).Err()
 		api.ErrorResponse(w, err)
 		return
 	}
 
+	q := r.URL.Query()
 	opts := SearchOpts{
-		Limit:          extractSearchLimit(queryParams),
-		MinMatch:       extractSearchMinMatch(queryParams),
-		RequestID:      queryParams.Get("requestID"),
+		Limit:          extractSearchLimit(r),
+		MinMatch:       extractSearchMinMatch(r),
+		RequestID:      q.Get("requestID"),
 		Debug:          debug,
-		DebugSourceIDs: strings.Split(queryParams.Get("debugSourceIDs"), ","),
+		DebugSourceIDs: strings.Split(q.Get("debugSourceIDs"), ","),
 	}
 
 	span.SetAttributes(
@@ -91,14 +89,6 @@ func (c *controller) search(w http.ResponseWriter, r *http.Request) {
 		attribute.String("entity.type", string(req.Type)),
 	)
 
-	// Check we don't have extra query params
-	if extra := queryParams.UnusedQueryParams(); len(extra) > 0 {
-		err = c.logger.Error().LogErrorf("extra/unused query parameters in request: %v", strings.Join(extra, ",")).Err()
-		api.ErrorResponse(w, err)
-		return
-	}
-
-	// Perform the search
 	entities, err := c.service.Search(ctx, req, opts)
 	if err != nil {
 		err = c.logger.Error().LogErrorf("problem with v2 search: %v", err).Err()
@@ -119,9 +109,9 @@ var (
 	softResultsLimit, hardResultsLimit = 10, 100
 )
 
-func extractSearchLimit(q *api.QueryParams) int {
+func extractSearchLimit(r *http.Request) int {
 	limit := softResultsLimit
-	if v := q.Get("limit"); v != "" {
+	if v := r.URL.Query().Get("limit"); v != "" {
 		n, _ := strconv.Atoi(v)
 		if n > 0 {
 			limit = n
@@ -136,38 +126,40 @@ func extractSearchLimit(q *api.QueryParams) int {
 	return limit
 }
 
-func extractSearchMinMatch(q *api.QueryParams) float64 {
-	if v := q.Get("minMatch"); v != "" {
+func extractSearchMinMatch(r *http.Request) float64 {
+	if v := r.URL.Query().Get("minMatch"); v != "" {
 		n, _ := strconv.ParseFloat(v, 64)
 		return n
 	}
 	return 0.00
 }
 
-func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Service, q *api.QueryParams) (search.Entity[search.Value], error) {
+func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Service, r *http.Request) (search.Entity[search.Value], error) {
+	q := r.URL.Query()
+
 	var err error
 	var req search.Entity[search.Value]
 
 	req.Name = strings.TrimSpace(q.Get("name"))
 	req.Type = search.EntityType(strings.TrimSpace(strings.ToLower(q.Get("type"))))
-	req.Source = cmp.Or(search.SourceList(q.Get("source")), search.SourceAPIRequest)
+	req.Source = search.SourceAPIRequest
 
 	switch req.Type {
 	case search.EntityPerson:
 		req.Person = &search.Person{
 			Name:      req.Name,
-			AltNames:  q.GetAll("altNames"),
+			AltNames:  q["altNames"],
 			Gender:    search.Gender(prepare.NormalizeGender(q.Get("gender"))),
 			BirthDate: readDate(q.Get("birthDate")),
 			DeathDate: readDate(q.Get("deathDate")),
-			Titles:    q.GetAll("titles"),
+			Titles:    q["titles"],
 			// GovernmentIDs []GovernmentID `json:"governmentIDs"` // TODO(adam):
 		}
 
 	case search.EntityBusiness:
 		req.Business = &search.Business{
 			Name:      req.Name,
-			AltNames:  q.GetAll("altNames"),
+			AltNames:  q["altNames"],
 			Created:   readDate(q.Get("created")),
 			Dissolved: readDate(q.Get("dissolved")),
 			// Identifier []Identifier `json:"identifier"`
@@ -176,7 +168,7 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 	case search.EntityOrganization:
 		req.Organization = &search.Organization{
 			Name:      req.Name,
-			AltNames:  q.GetAll("altNames"),
+			AltNames:  q["altNames"],
 			Created:   readDate(q.Get("created")),
 			Dissolved: readDate(q.Get("dissolved")),
 			// Identifier []Identifier `json:"identifier"`
@@ -185,7 +177,7 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 	case search.EntityAircraft:
 		req.Aircraft = &search.Aircraft{
 			Name:         req.Name,
-			AltNames:     q.GetAll("altNames"),
+			AltNames:     q["altNames"],
 			Type:         search.AircraftType(q.Get("aircraftType")),
 			Flag:         q.Get("flag"),
 			Built:        readDate("built"),
@@ -197,7 +189,7 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 	case search.EntityVessel:
 		req.Vessel = &search.Vessel{
 			Name:      req.Name,
-			AltNames:  q.GetAll("altNames"),
+			AltNames:  q["altNames"],
 			IMONumber: q.Get("imoNumber"),
 			Type:      search.VesselType(q.Get("vesselType")),
 			Flag:      q.Get("flag"),
@@ -220,18 +212,21 @@ func readSearchRequest(ctx context.Context, addressParsingPool *postalpool.Servi
 				return req, fmt.Errorf("reading vessel GrossRegisteredTonnage: %w", err)
 			}
 		}
+
+	default:
+		return req, fmt.Errorf("missing type")
 	}
 
 	// contact info // TODO(adam): normalize
-	req.Contact.EmailAddresses = readStrings(q.GetAll("email"), q.GetAll("emailAddress"), q.GetAll("emailAddresses"))
-	req.Contact.PhoneNumbers = readStrings(q.GetAll("phone"), q.GetAll("phoneNumber"), q.GetAll("phoneNumbers"))
-	req.Contact.FaxNumbers = readStrings(q.GetAll("fax"), q.GetAll("faxNumber"), q.GetAll("faxNumbers"))
-	req.Contact.Websites = readStrings(q.GetAll("website"), q.GetAll("websites"))
+	req.Contact.EmailAddresses = readStrings(q["email"], q["emailAddress"], q["emailAddresses"])
+	req.Contact.PhoneNumbers = readStrings(q["phone"], q["phoneNumber"], q["phoneNumbers"])
+	req.Contact.FaxNumbers = readStrings(q["fax"], q["faxNumber"], q["faxNumbers"])
+	req.Contact.Websites = readStrings(q["website"], q["websites"])
 
-	addresses := readStrings(q.GetAll("address"), q.GetAll("addresses"))
+	addresses := readStrings(q["address"], q["addresses"])
 	req.Addresses = readAddresses(ctx, addressParsingPool, addresses)
 
-	cryptoAddresses := readStrings(q.GetAll("cryptoAddress"), q.GetAll("cryptoAddresses"))
+	cryptoAddresses := readStrings(q["cryptoAddress"], q["cryptoAddresses"])
 	req.CryptoAddresses = readCryptoCurrencyAddresses(cryptoAddresses)
 
 	// TODO(adam):

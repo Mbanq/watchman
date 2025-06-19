@@ -17,9 +17,8 @@ func TestClient_buildQueryParameters(t *testing.T) {
 	}{
 		{
 			entity: Entity[Value]{
-				Name:   "john doe",
-				Type:   EntityPerson,
-				Source: SourceUSOFAC,
+				Name: "john doe",
+				Type: EntityPerson,
 				Person: &Person{
 					AltNames:  []string{"jon doe", "johnny doe"},
 					Gender:    "male",
@@ -32,7 +31,6 @@ func TestClient_buildQueryParameters(t *testing.T) {
 			},
 			expected: map[string][]string{
 				"name":      []string{"john doe"},
-				"source":    []string{"us_ofac"},
 				"type":      []string{"person"},
 				"altNames":  []string{"jon doe", "johnny doe"},
 				"gender":    []string{"male"},

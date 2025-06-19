@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	defaultTimeout = 60 * time.Second
+	defaultTimeout = 45 * time.Second
 )
 
 var (

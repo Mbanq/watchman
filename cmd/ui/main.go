@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/mail"
 	"os"
 
 	"github.com/moov-io/watchman"
@@ -13,7 +12,7 @@ import (
 	"github.com/moov-io/watchman/pkg/search"
 
 	"github.com/moov-io/base/log"
-	"github.com/urfave/cli/v3"
+	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -38,12 +37,12 @@ func main() {
 
 	ctx := context.Background()
 
-	app := &cli.Command{
+	app := &cli.App{
 		Name: "watchman-ui",
 		// UsageText:   "watchman-ui [global options] command [command options]",
 		Description: "Watchman GUI",
-		Authors: []any{
-			mail.Address{Name: "Moov OSS", Address: "oss@moov.io"},
+		Authors: []*cli.Author{
+			{Name: "Moov OSS", Email: "oss@moov.io"},
 		},
 		Flags: []cli.Flag{
 			// Common Flags
@@ -52,10 +51,10 @@ func main() {
 		Commands: []*cli.Command{
 			// commandFind,
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
+		Action: func(cliContext *cli.Context) error {
 			env := ui.Environment{
 				Logger: logger,
-				Client: createWatchmanClient(cmd.String(flagBaseAddress.Name)),
+				Client: createWatchmanClient(cliContext.String(flagBaseAddress.Name)),
 			}
 
 			// cli.ShowAppHelp(ctx)
@@ -64,7 +63,7 @@ func main() {
 		},
 	}
 
-	if err := app.Run(ctx, os.Args); err != nil {
+	if err := app.Run(os.Args); err != nil {
 		fmt.Printf("ERROR running command: %v\n", err)
 		os.Exit(127)
 	}
