@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/moov-io/base/log"
+	"github.com/moov-io/watchman/internal/api"
+	"github.com/moov-io/watchman/internal/index"
 	"github.com/moov-io/watchman/internal/ofactest"
 	"github.com/moov-io/watchman/pkg/search"
 
@@ -45,15 +47,17 @@ func testAPI(tb testing.TB) testSetup {
 
 	logger := log.NewTestLogger()
 
+	indexedLists := index.NewLists(nil) // only in-mem
+
 	searchConfig := DefaultConfig()
-	service, err := NewService(logger, searchConfig)
+	service, err := NewService(logger, searchConfig, indexedLists)
 	require.NoError(tb, err)
 
 	dl := ofactest.GetDownloader(tb)
 	stats, err := dl.RefreshAll(context.Background())
 	require.NoError(tb, err)
 
-	service.UpdateEntities(stats)
+	indexedLists.Update(stats)
 
 	controller := NewController(logger, service, nil)
 
@@ -73,8 +77,9 @@ func TestAPI_readSearchRequest(t *testing.T) {
 
 	t.Run("basic", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/v2/search?name=adam&type=person&birthDate=2025-01-02", nil)
+		q := &api.QueryParams{Values: req.URL.Query()}
 
-		query, err := readSearchRequest(ctx, nil, req)
+		query, err := readSearchRequest(ctx, nil, q)
 		require.NoError(t, err)
 
 		require.Equal(t, "adam", query.Name)
@@ -85,14 +90,26 @@ func TestAPI_readSearchRequest(t *testing.T) {
 
 	})
 
+	t.Run("name without type", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v2/search?name=adam", nil)
+		q := &api.QueryParams{Values: req.URL.Query()}
+
+		query, err := readSearchRequest(ctx, nil, q)
+		require.NoError(t, err)
+
+		require.Equal(t, "adam", query.Name)
+		require.Empty(t, query.Type)
+	})
+
 	t.Run("contact info", func(t *testing.T) {
 		address := "/v2/search?type=business&emailAddress=a@corp.com&phone=1234567890"
 		address += "&faxNumber=3334445566&email=b@corp.com&phone=9876543210"
 		address += "&website=corp.com&website=corp2.com"
 
 		req := httptest.NewRequest("GET", address, nil)
+		q := &api.QueryParams{Values: req.URL.Query()}
 
-		query, err := readSearchRequest(ctx, nil, req)
+		query, err := readSearchRequest(ctx, nil, q)
 		require.NoError(t, err)
 		require.Empty(t, query.Name)
 
@@ -110,8 +127,9 @@ func TestAPI_readSearchRequest(t *testing.T) {
 
 	t.Run("crypto addresses", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/v2/search?type=person&cryptoAddress=xbt:12345&cryptoAddress=eth:54321", nil)
+		q := &api.QueryParams{Values: req.URL.Query()}
 
-		query, err := readSearchRequest(ctx, nil, req)
+		query, err := readSearchRequest(ctx, nil, q)
 		require.NoError(t, err)
 		require.Empty(t, query.Name)
 
@@ -126,7 +144,9 @@ func TestAPI_readSearchRequest(t *testing.T) {
 
 	t.Run("address", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/v2/search?type=person&name=Jane&address=123+Acme+St+Acmetown+KY+54321+US", nil)
-		query, err := readSearchRequest(ctx, nil, req)
+		q := &api.QueryParams{Values: req.URL.Query()}
+
+		query, err := readSearchRequest(ctx, nil, q)
 		require.NoError(t, err)
 
 		require.Equal(t, "Jane", query.Name)
@@ -142,6 +162,25 @@ func TestAPI_readSearchRequest(t *testing.T) {
 		require.Len(t, query.Addresses, 1)
 		require.Equal(t, expected, query.Addresses[0])
 	})
+
+	t.Run("government id (US Passport)", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v2/search?type=person&gov_passport=US:123456789", nil)
+		q := &api.QueryParams{Values: req.URL.Query()}
+
+		query, err := readSearchRequest(ctx, nil, q)
+		require.NoError(t, err)
+		require.NotNil(t, query.Person)
+
+		govIDs := query.Person.GovernmentIDs
+		require.Len(t, govIDs, 1)
+
+		expected := search.GovernmentID{
+			Type:       search.GovernmentIDPassport,
+			Country:    "US",
+			Identifier: "123456789",
+		}
+		require.Equal(t, expected, govIDs[0])
+	})
 }
 
 func TestAPI_Search(t *testing.T) {
@@ -152,6 +191,8 @@ func TestAPI_Search(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		env.router.ServeHTTP(w, req)
+
+		t.Log(w.Body.String())
 
 		require.Equal(t, http.StatusOK, w.Code)
 
