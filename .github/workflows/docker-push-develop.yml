@@ -20,4 +20,4 @@ jobs:
           username: "sophanith2020"
           password: ${{ secrets.GHCIO }}
           repository: mbanq/watchman
-          tags: dev-latest
+          tags: dev-v0.53.1
