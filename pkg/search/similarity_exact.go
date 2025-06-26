@@ -7,20 +7,6 @@ import (
 
 // compareExactIdentifiers covers exact matches for identifiers across all entity types
 func compareExactIdentifiers[Q any, I any](w io.Writer, query Entity[Q], index Entity[I], weight float64) ScorePiece {
-	// If types don't match, return early
-	if query.Type != index.Type {
-		return ScorePiece{
-			Score:          0,
-			Weight:         weight,
-			Matched:        false,
-			Required:       false,
-			Exact:          false,
-			FieldsCompared: 1,
-			PieceType:      "identifiers",
-		}
-	}
-
-	// Call appropriate helper based on entity type
 	switch query.Type {
 	case EntityPerson:
 		return comparePersonExactIDs(w, query.Person, index.Person, weight)
@@ -342,18 +328,6 @@ Done:
 
 // compareExactGovernmentIDs compares government IDs across entity types
 func compareExactGovernmentIDs[Q any, I any](w io.Writer, query Entity[Q], index Entity[I], weight float64) ScorePiece {
-	if query.Type != index.Type {
-		return ScorePiece{
-			Score:          0,
-			Weight:         weight,
-			Matched:        false,
-			Required:       false,
-			Exact:          false,
-			FieldsCompared: 0,
-			PieceType:      "gov-ids-exact",
-		}
-	}
-
 	switch query.Type {
 	case EntityPerson:
 		return comparePersonGovernmentIDs(query.Person, index.Person, weight)
@@ -524,50 +498,6 @@ Done:
 		Exact:          bestMatch.exact,
 		FieldsCompared: fieldsCompared,
 		PieceType:      "gov-ids-exact",
-	}
-}
-
-func compareExactSourceID[Q any, I any](w io.Writer, query Entity[Q], index Entity[I], weight float64) ScorePiece {
-	// Early return if query has no source ID
-	if query.SourceID == "" {
-		return ScorePiece{
-			Score:          0,
-			Weight:         weight,
-			Matched:        false,
-			Required:       false,
-			Exact:          false,
-			FieldsCompared: 0,
-			PieceType:      "source-id-exact",
-		}
-	}
-
-	// Always count as field compared if query has a source ID
-	fieldsCompared := 1
-
-	// Handle case where index has no source ID
-	if index.SourceID == "" {
-		return ScorePiece{
-			Score:          0,
-			Weight:         weight,
-			Matched:        false,
-			Required:       false,
-			Exact:          false,
-			FieldsCompared: fieldsCompared,
-			PieceType:      "source-id-exact",
-		}
-	}
-
-	// Compare normalized source IDs
-	hasMatch := strings.EqualFold(query.SourceID, index.SourceID)
-
-	return ScorePiece{
-		Score:          boolToScore(hasMatch),
-		Weight:         weight,
-		Matched:        hasMatch,
-		Required:       false,
-		Exact:          hasMatch, // If matched, it's exact by definition
-		FieldsCompared: fieldsCompared,
-		PieceType:      "source-id-exact",
 	}
 }
 

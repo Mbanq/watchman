@@ -15,18 +15,23 @@ import (
 
 type Service interface {
 	ReadEntitiesFromFile(ctx context.Context, name string, contents io.Reader) (FileEntities, error)
+	ReplaceEntities(ctx context.Context, fileType string, entities []search.Entity[search.Value]) error
 }
 
-func NewService(logger log.Logger, conf Config) Service {
+func NewService(logger log.Logger, conf Config, repo Repository) Service {
+	logger.Info().Logf("found %d ingest fileTypes, using %T", len(conf.Files), repo)
+
 	return &service{
 		logger: logger,
 		conf:   conf,
+		repo:   repo,
 	}
 }
 
 type service struct {
 	logger log.Logger
 	conf   Config
+	repo   Repository
 }
 
 type FileEntities struct {
@@ -130,15 +135,21 @@ func readColumnDef(headers []string, def ColumnDef, row []string) string {
 	var fields []string
 
 	if def.Column != "" {
-		value := strings.TrimSpace(row[slices.Index(headers, def.Column)])
-		if value != "" {
-			fields = append(fields, value)
+		idx := slices.Index(headers, def.Column)
+		if idx >= 0 && idx < len(row) {
+			value := strings.TrimSpace(row[idx])
+			if value != "" {
+				fields = append(fields, value)
+			}
 		}
 	}
 	for _, col := range def.Merge {
-		value := strings.TrimSpace(row[slices.Index(headers, col)])
-		if value != "" {
-			fields = append(fields, value)
+		idx := slices.Index(headers, col)
+		if idx >= 0 && idx < len(row) {
+			value := strings.TrimSpace(row[idx])
+			if value != "" {
+				fields = append(fields, value)
+			}
 		}
 	}
 
@@ -149,17 +160,23 @@ func readColumnArrayDef(headers []string, def ColumnArrayDef, row []string) []st
 	var fields []string
 
 	if def.Columns != "" {
-		value := strings.TrimSpace(row[slices.Index(headers, def.Columns)])
-		if value != "" {
-			fields = append(fields, value)
+		idx := slices.Index(headers, def.Columns)
+		if idx >= 0 && idx < len(row) {
+			value := strings.TrimSpace(row[idx])
+			if value != "" {
+				fields = append(fields, value)
+			}
 		}
 	}
 
 	var name string
 	for _, col := range def.Merge {
-		value := strings.TrimSpace(row[slices.Index(headers, col)])
-		if value != "" {
-			name += fmt.Sprintf(" %s", value)
+		idx := slices.Index(headers, col)
+		if idx >= 0 && idx < len(row) {
+			value := strings.TrimSpace(row[idx])
+			if value != "" {
+				name += fmt.Sprintf(" %s", value)
+			}
 		}
 	}
 
@@ -241,4 +258,17 @@ func readAddresses(headers []string, def Addresses, row []string) (out []search.
 	}
 
 	return
+}
+
+func (s *service) ReplaceEntities(ctx context.Context, fileType string, entities []search.Entity[search.Value]) error {
+	if s.repo == nil {
+		return nil
+	}
+
+	err := s.repo.Upsert(ctx, fileType, entities)
+	if err != nil {
+		return fmt.Errorf("problem replacing %s entities: %w", fileType, err)
+	}
+
+	return nil
 }

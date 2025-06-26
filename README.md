@@ -20,7 +20,7 @@
 [![Apache 2 License](https://img.shields.io/badge/license-Apache2-blue.svg)](https://raw.githubusercontent.com/moov-io/ach/master/LICENSE)
 [![Slack Channel](https://slack.moov.io/badge.svg?bg=e01563&fgColor=fffff)](https://slack.moov.io/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/moov/watchman)](https://hub.docker.com/r/moov/watchman)
-[![Twitter](https://img.shields.io/twitter/follow/moov?style=social)](https://twitter.com/moov?lang=en)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/moov-io/watchman)
 
 # moov-io/watchman
 
@@ -48,7 +48,7 @@ Watchman integrates the following lists to help you maintain global compliance:
 
 ### Future Lists
 
-The v0.5X series of Watchman has revamped its search engine. The following lists are being re-added into Watchman.
+The v0.50+ series of Watchman has revamped its search engine. The following lists are being re-added into Watchman.
 
 | Source | List |
 |--------|------|
@@ -56,29 +56,11 @@ The v0.5X series of Watchman has revamped its search engine. The following lists
 | United Kingdom | [OFSI Sanctions List](https://www.gov.uk/government/publications/financial-sanctions-consolidated-list-of-targets/consolidated-list-of-targets#contents) |
 | United Kingdom | [Sanctions List](https://www.gov.uk/government/publications/the-uk-sanctions-list) (Disabled by default) |
 
-## v2 Endpoints (v0.5X series and beyond)
+## v2 Endpoints (v0.50+ series and beyond)
 
-The v0.5X series of Watchman has introduced a new v2 search endpoint and removed the older endpoint. This was done to offer a unified response model, improve overall performance, and work towards a stable v1.0 release.
+The v0.50+ series of Watchman has introduced a new v2 search endpoint and removed the older endpoint. This was done to offer a unified response model, improve overall performance, and work towards a stable v1.0 release.
 
 We encourage you to try out the new Watchman and [report any issues or requests in slack](https://slack.moov.io) (`#watchman` channel).
-
-## Table of contents
-
-- [Project status](#project-status)
-- [Usage](#usage)
-  - As an API
-    - [Docker](#docker) ([Config](#configuration-settings))
-    - [Data persistence](#data-persistence)
-- [Configuration](#configuration)
-   - [Similarity Configuration](#similarity-configuration)
-   - [Source List Configuration](#source-list-configuration)
-- [Useful resources](#useful-resources)
-- [FAQ](#faq)
-- [Getting help](#getting-help)
-- [Supported and tested platforms](#supported-and-tested-platforms)
-- [Contributing](#contributing)
-- [Related projects](#related-projects)
-- [License](#license)
 
 ## Project status
 
@@ -174,48 +156,13 @@ curl -s "http://localhost:8084/v2/search?name=Nicolas+Maduro&type=person&limit=1
 
 ### Data persistence
 
-By design, Watchman **does not persist** (save) any data about the search queries or actions created. The only storage occurs in memory of the process and upon restart Watchman will have no files or data saved. Also, no in-memory encryption of the data is performed.
+By design, Watchman **does not persist** (save) any data about the search queries or lists pulled from external sources. Watchman can store ingested files (the individual records) in
+a MySQL or PostgreSQL database for concurrent access. External lists that are downloaded on startup (and refreshed periodically) are only kept in memory. No encryption of data in-memory
+is performed.
 
 ## Configuration
 
-| Environmental Variable | Description | Default |
-|-----|-----|-----|
-| `DATA_REFRESH_INTERVAL` | Interval for data redownload and reparse. `off` disables this refreshing. | 12h |
-| `INITIAL_DATA_DIRECTORY` | Directory filepath with initial files to use instead of downloading. Periodic downloads will replace the initial files. | Empty |
-| `HTTPS_CERT_FILE` | Filepath containing a certificate (or intermediate chain) to be served by the HTTP server. Requires all traffic be over secure HTTP. | Empty |
-| `HTTPS_KEY_FILE`  | Filepath of a private key matching the leaf certificate from `HTTPS_CERT_FILE`. | Empty |
-| `LOG_FORMAT` | Format for logging lines to be written as. | Options: `json`, `plain` - Default: `plain` |
-| `LOG_LEVEL` | Level of logging to emit. | Options: `trace`, `info` - Default: `info` |
-
-### Similarity Configuration
-
-| Environmental Variable | Description | Default |
-|-----|-----|-----|
-| `SEARCH_GOROUTINE_COUNT` | Set a fixed number of goroutines used for each search. Default is to dynamically optimize for faster results. | Empty |
-| `KEEP_STOPWORDS` | Boolean to keep stopwords in names. | `false` |
-| `JARO_WINKLER_BOOST_THRESHOLD` | Jaro-Winkler boost threshold. | 0.7 |
-| `JARO_WINKLER_PREFIX_SIZE` | Jaro-Winkler prefix size. | 4 |
-| `LENGTH_DIFFERENCE_CUTOFF_FACTOR` | Minimum ratio for the length of two matching tokens, before they score is penalised. | 0.9       |
-| `LENGTH_DIFFERENCE_PENALTY_WEIGHT` | Weight of penalty applied to scores when two matching tokens have different lengths. | 0.3    |
-| `DIFFERENT_LETTER_PENALTY_WEIGHT` | Weight of penalty applied to scores when two matching tokens begin with different letters. | 0.9   |
-| `UNMATCHED_INDEX_TOKEN_WEIGHT` | Weight of penalty applied to scores when part of the indexed name isn't matched. | 0.15    |
-| `ADJACENT_SIMILARITY_POSITIONS` | How many nearby words to search for highest max similarly score. | 3 |
-| `EXACT_MATCH_FAVORITISM` | Extra weighting assigned to exact matches. | 0.0 |
-| `DISABLE_PHONETIC_FILTERING` | Force scoring search terms against every indexed record. | `false` |
-
-#### Source List Configuration
-
-| Environmental Variable | Description | Default |
-|-----|-----|-----|
-| `DOWNLOAD_TIMEOUT` | Duration of time allowed for a list to fully download. | `45s` |
-| `OFAC_DOWNLOAD_TEMPLATE` | HTTP address for downloading raw OFAC files. | `https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/%s` |
-| `EU_CSL_TOKEN` | Token used to download the EU Consolidated Screening List | `<valid-token>` |
-| `EU_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading EU Consolidated Screening List | Subresource of `webgate.ec.europa.eu` |
-| `UK_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading UK Consolidated Screening List | Subresource of `www.gov.uk` |
-| `UK_SANCTIONS_LIST_URL` | Use an alternate URL for downloading UK Sanctions List | Subresource of `www.gov.uk` |
-| `WITH_UK_SANCTIONS_LIST` | Download and parse the UK Sanctions List on startup. | Default: `false` |
-| `US_CSL_DOWNLOAD_URL` | Use an alternate URL for downloading US Consolidated Screening List | Subresource of `api.trade.gov` |
-| `CSL_DOWNLOAD_TEMPLATE` | Same as `US_CSL_DOWNLOAD_URL` | |
+Watchman recommends [file-based configuration](https://moov-io.github.io/watchman/config/) but supports environmental variable options.
 
 ### FAQ
 
@@ -250,13 +197,14 @@ If you find a security issue please contact us at [`security@moov.io`](mailto:se
 
 ## Contributing
 
-Yes please! Please review our [Contributing guide](CONTRIBUTING.md) and [Code of Conduct](https://github.com/moov-io/ach/blob/master/CODE_OF_CONDUCT.md) to get started! Checkout our [issues for first time contributors](https://github.com/moov-io/watchman/contribute) for something to help out with.
+Yes please! Checkout our [issues for first time contributors](https://github.com/moov-io/watchman/contribute) for something to help out with.
 
 Building Watchman's source code follows standard Go commands. You can use `make build` to compile the code and `make check` to run linters and tests.
 
 Run `make install` to setup [gopostal](https://github.com/openvenues/gopostal) / [libpostal](https://github.com/openvenues/libpostal) for Watchman.
 
 ## Related projects
+
 As part of Moov's initiative to offer open source fintech infrastructure, we have a large collection of active projects you may find useful:
 
 - [Moov Fed](https://github.com/moov-io/fed) implements utility services for searching the United States Federal Reserve System such as ABA routing numbers, financial institution name lookup, and FedACH and Fedwire routing information.

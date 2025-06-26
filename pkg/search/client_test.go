@@ -10,6 +10,7 @@ import (
 
 	"github.com/moov-io/base/log"
 	"github.com/moov-io/watchman/internal/config"
+	"github.com/moov-io/watchman/internal/index"
 	"github.com/moov-io/watchman/internal/ingest"
 	"github.com/moov-io/watchman/internal/ofactest"
 	"github.com/moov-io/watchman/internal/search"
@@ -36,22 +37,24 @@ func testAPI(tb testing.TB) testSetup {
 	logger := log.NewTestLogger()
 
 	searchConfig := search.DefaultConfig()
-	searchService, err := search.NewService(logger, searchConfig)
+	indexedLists := index.NewLists(nil) // only in-mem
+	searchService, err := search.NewService(logger, searchConfig, indexedLists)
 	require.NoError(tb, err)
 
 	dl := ofactest.GetDownloader(tb)
 	stats, err := dl.RefreshAll(context.Background())
 	require.NoError(tb, err)
 
-	searchService.UpdateEntities(stats)
+	indexedLists.Update(stats)
 
 	conf, err := config.LoadConfig(logger)
 	require.NoError(tb, err)
 
-	ingestService := ingest.NewService(logger, conf.Ingest)
+	var ingestRepository ingest.Repository = nil
+	ingestService := ingest.NewService(logger, conf.Ingest, ingestRepository)
 
 	searchController := search.NewController(logger, searchService, nil)
-	ingestController := ingest.NewController(logger, ingestService, searchService)
+	ingestController := ingest.NewController(logger, ingestService)
 
 	router := mux.NewRouter()
 	searchController.AppendRoutes(router)
@@ -111,18 +114,6 @@ func TestClient_SearchByEntity(t *testing.T) {
 
 		require.NotEmpty(t, response.Entities[0].Details)
 		require.Greater(t, response.Entities[0].Details.FinalScore, 0.01)
-	})
-
-	t.Run("missing type", func(t *testing.T) {
-		ctx := context.Background()
-		query := public.Entity[public.Value]{
-			Name: "John",
-		}
-		var opts public.SearchOpts
-
-		response, err := scope.client.SearchByEntity(ctx, query, opts)
-		require.ErrorContains(t, err, "missing type")
-		require.Empty(t, response.Entities)
 	})
 
 	t.Run("error", func(t *testing.T) {
