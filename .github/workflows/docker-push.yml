@@ -3,7 +3,7 @@ name: Build and Push to GHCR.IO
 on:
   push:
     branches:
-    - master
+    - master-lts
 
 jobs:
   build:
@@ -19,4 +19,4 @@ jobs:
           username: "thisisfeeder"
           password: ${{ secrets.GHCIO }}
           repository: mbanq/watchman
-          tags: latest
+          tags: latest-tls
